@@ -135,10 +135,8 @@ function startEventsSync(uid){
       window.applyRemoteEvents?.(arr);
     });
 
-    // 로컬 저장 래핑 → 클라우드 업데이트
-    const origSave = window.saveUserEvents;
-    window.saveUserEvents = function(){
-      try{ origSave && origSave(); }catch{}
+    // 로컬 저장 후 클라우드 업데이트 훅
+    window.afterLocalSave = function(){
       try{
         const arr = (typeof window.getUserEvents === 'function')
           ? (window.getUserEvents() || [])
@@ -150,7 +148,12 @@ function startEventsSync(uid){
     console.warn('[sync] startEventsSync error', e);
   }
 }
-function stopEventsSync(){ try{ window._unsubEvents && window._unsubEvents(); }catch{} }
+
+function stopEventsSync(){
+  try{ window._unsubEvents && window._unsubEvents(); }catch{}
+  try{ delete window.afterLocalSave; }catch{}
+}
+
 window.startEventsSync = startEventsSync;
 window.stopEventsSync  = stopEventsSync;
 // === END Firestore 동기화 ===
@@ -165,15 +168,27 @@ onAuthStateChanged(auth, (user) => {
 window.phhsAuth = { auth, signOut, onAuthStateChanged };
 
 
-// === Lightweight Auth UI mount (guarantees login button) ===
+// === Toolbar Login UI mount ===
 function mountAuthUI(){
   try {
-    const box = document.getElementById('authBox');
-    if (!box) return;
+    // prefer toolbar
+    let mount = document.querySelector('.toolbar #authMount') ||
+                document.querySelector('.toolbar') ||
+                document.getElementById('authBox');
+    if (!mount) return;
 
-    if (!box.querySelector('#authUI')) {
-      box.innerHTML = [
-        '<div id="authUI" style="display:flex;gap:.5rem;align-items:center">',
+    // If the mount is the toolbar itself, create an inner container placed to the right
+    if (mount.classList && mount.classList.contains('toolbar')){
+      let s = document.createElement('span');
+      s.style.marginLeft = 'auto';
+      s.id = 'authMount';
+      mount.appendChild(s);
+      mount = s;
+    }
+
+    if (!mount.querySelector('#authUI')) {
+      mount.innerHTML = [
+        '<div id="authUI" class="auth-mini">',
         '  <button id="loginBtn" type="button">Google 로그인</button>',
         '  <span id="userName" style="display:none"></span>',
         '  <button id="logoutBtn" type="button" style="display:none">로그아웃</button>',
@@ -181,16 +196,14 @@ function mountAuthUI(){
       ].join('');
     }
 
-    const loginBtn  = box.querySelector('#loginBtn');
-    const logoutBtn = box.querySelector('#logoutBtn');
-    const userName  = box.querySelector('#userName');
+    const loginBtn  = mount.querySelector('#loginBtn');
+    const logoutBtn = mount.querySelector('#logoutBtn');
+    const userName  = mount.querySelector('#userName');
 
     const provider = new GoogleAuthProvider();
-    try {
-      if (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN) {
-        provider.setCustomParameters({ hd: ALLOWED_DOMAIN, prompt: 'select_account' });
-      }
-    } catch (e) {}
+    try { if (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN) {
+      provider.setCustomParameters({ hd: ALLOWED_DOMAIN, prompt: 'select_account' });
+    }} catch(e){}
 
     if (loginBtn) loginBtn.onclick  = () => signInWithPopup(auth, provider).catch(console.warn);
     if (logoutBtn) logoutBtn.onclick = () => signOut(auth).catch(console.warn);
@@ -206,7 +219,6 @@ function mountAuthUI(){
       if (logoutBtn) logoutBtn.style.display = 'none';
     }
 
-    // UI + 동기화
     onAuthStateChanged(auth, (user) => {
       const email = (user && user.email || '').toLowerCase();
       const allowed = (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN)
@@ -230,5 +242,5 @@ if (document.readyState === 'loading') {
 } else {
   mountAuthUI();
 }
-// === END Lightweight Auth UI ===
+// === END Toolbar Login UI mount ===
 
