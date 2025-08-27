@@ -134,9 +134,10 @@
 
 
 </style>
+<style>.hidden{display:none}</style>
 </head>
-<body>
-<div id=\"authBox\" style=\"position:fixed; top:10px; right:10px; z-index:9999\"></div>
+\1
+<div id="authBox" style="position:fixed; top:10px; right:10px; z-index:9999"></div>
 <div class="wrap">
   <div class="layout">
     <!-- 캘린더 -->
@@ -485,7 +486,7 @@ function saveUserEvents(){
   let selectedDate = null;
   render(current);
 
-// === Firestore 연동 훅 노출 시작 ===
+// === Firestore 연동 훅 노출 ===
 try {
   window.EVENTS_USER    = EVENTS_USER;
   window.saveUserEvents = saveUserEvents;
@@ -495,19 +496,19 @@ try {
   window.applyRemoteEvents = function(arr){
     try{
       EVENTS_USER = normalizeUserArray(Array.isArray(arr) ? arr : []);
-      saveUserEvents();       // localStorage + 메타 갱신
-      render(current);        // 화면 갱신
+      saveUserEvents();
+      render(current);
       console.log('[sync] applied remote -> UI');
     }catch(e){ console.warn('[sync] applyRemote', e); }
   };
 
-  // 페이지가 먼저 열려 있고 이미 로그인 상태라면 즉시 동기화 시작
+  // 이미 로그인된 상태라면 즉시 동기화 시도
   try {
     const u = (window.phhsAuth && window.phhsAuth.auth && window.phhsAuth.auth.currentUser) || null;
     if (u && u.uid) { window.startEventsSync?.(u.uid); }
   } catch(e) {}
 } catch(e) { console.warn('[sync] hook expose', e); }
-// === Firestore 연동 훅 노출 끝 ===
+// === 끝 ===
 
 
   function render(date){

@@ -1,4 +1,3 @@
-import { initializeFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 // auth.js — PHHS 전용 Google 로그인 (@phhs.kr 도메인 제한)
 // 정적 사이트(깃허브 Pages/Netlify 등)에서 바로 동작하도록 Firebase v10 CDN 모듈 사용
 
@@ -8,6 +7,7 @@ import {
   signInWithPopup, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
+import { initializeFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 console.log("[auth] loaded");
 
 // 🔧 네가 준 Firebase 설정 (콘솔에서 복사한 값)
@@ -23,11 +23,10 @@ const firebaseConfig = {
 
 // Firebase 초기화
 const app  = initializeApp(firebaseConfig);
-\1
-const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
-  useFetchStreams: false
-});
+const auth = getAuth(app);
+
+
+const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true, useFetchStreams: false });
 // 같은 브라우저에서 로그인 상태 유지
 setPersistence(auth, browserLocalPersistence).catch(console.warn);
 
@@ -107,7 +106,7 @@ function renderSignedIn(user){
 function startEventsSync(uid){
   try {
     if (!uid) return;
-    const ref = doc(db, "users", uid); // users/{uid} 문서: { events: [] }
+    const ref = doc(db, "users", uid); // users/{uid}
 
     // 최초 동기화
     (async () => {
@@ -151,11 +150,7 @@ function startEventsSync(uid){
     console.warn('[sync] startEventsSync error', e);
   }
 }
-
-function stopEventsSync(){
-  try{ window._unsubEvents && window._unsubEvents(); }catch{}
-}
-
+function stopEventsSync(){ try{ window._unsubEvents && window._unsubEvents(); }catch{} }
 window.startEventsSync = startEventsSync;
 window.stopEventsSync  = stopEventsSync;
 // === END Firestore 동기화 ===
@@ -168,19 +163,72 @@ onAuthStateChanged(auth, (user) => {
 
 // 디버깅용
 window.phhsAuth = { auth, signOut, onAuthStateChanged };
-// === 동기화 트리거 리스너 추가 (중복 안전) ===
-try {
-  onAuthStateChanged(auth, (user) => {
-    const email = (user && user.email || "").toLowerCase();
-    const allowed = (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN)
-      ? email.endsWith("@"+ALLOWED_DOMAIN)
-      : true;
-    if (user && allowed){
-      window.startEventsSync?.(user.uid);
-    } else {
-      window.stopEventsSync?.();
+
+
+// === Lightweight Auth UI mount (guarantees login button) ===
+function mountAuthUI(){
+  try {
+    const box = document.getElementById('authBox');
+    if (!box) return;
+
+    if (!box.querySelector('#authUI')) {
+      box.innerHTML = [
+        '<div id="authUI" style="display:flex;gap:.5rem;align-items:center">',
+        '  <button id="loginBtn" type="button">Google 로그인</button>',
+        '  <span id="userName" style="display:none"></span>',
+        '  <button id="logoutBtn" type="button" style="display:none">로그아웃</button>',
+        '</div>'
+      ].join('');
     }
-  });
-} catch (e) {
-  console.warn('[sync] onAuthStateChanged adder', e);
+
+    const loginBtn  = box.querySelector('#loginBtn');
+    const logoutBtn = box.querySelector('#logoutBtn');
+    const userName  = box.querySelector('#userName');
+
+    const provider = new GoogleAuthProvider();
+    try {
+      if (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN) {
+        provider.setCustomParameters({ hd: ALLOWED_DOMAIN, prompt: 'select_account' });
+      }
+    } catch (e) {}
+
+    if (loginBtn) loginBtn.onclick  = () => signInWithPopup(auth, provider).catch(console.warn);
+    if (logoutBtn) logoutBtn.onclick = () => signOut(auth).catch(console.warn);
+
+    function showSignedIn(u){
+      if (loginBtn)  loginBtn.style.display = 'none';
+      if (userName) { userName.style.display = ''; userName.textContent = (u.displayName || u.email || '로그인됨'); }
+      if (logoutBtn) logoutBtn.style.display = '';
+    }
+    function showSignedOut(){
+      if (loginBtn)  loginBtn.style.display = '';
+      if (userName)  userName.style.display = 'none';
+      if (logoutBtn) logoutBtn.style.display = 'none';
+    }
+
+    // UI + 동기화
+    onAuthStateChanged(auth, (user) => {
+      const email = (user && user.email || '').toLowerCase();
+      const allowed = (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN)
+        ? email.endsWith('@' + ALLOWED_DOMAIN)
+        : true;
+      if (user && allowed){
+        showSignedIn(user);
+        window.startEventsSync?.(user.uid);
+      } else {
+        showSignedOut();
+        window.stopEventsSync?.();
+      }
+    });
+  } catch (e) {
+    console.warn('[auth-ui] mount error', e);
+  }
 }
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', mountAuthUI, { once: true });
+} else {
+  mountAuthUI();
+}
+// === END Lightweight Auth UI ===
+
