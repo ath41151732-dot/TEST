@@ -178,7 +178,12 @@
           <button id="btnClear">초기화</button>
           <div class="meta" id="metaCount">저장된 사용자 일정: 0건
           <span class="flex-spacer" style="flex:1"></span>
-          <span id="authMount"></span>
+          <div class="auth-mini" id="authBox">
+  <span id="userName" style="display:none"></span>
+  <button id="loginBtn">Google 로그인</button>
+  <button id="logoutBtn" style="display:none">로그아웃</button>
+</div>
+
 </div>
           <input type="file" id="importFile" accept="application/json" style="display:none"/>
         </div>
