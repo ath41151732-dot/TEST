@@ -1,108 +1,22 @@
-// auth.js — PHHS 전용 Google 로그인 (@phhs.kr 도메인 제한)
-// 정적 사이트(깃허브 Pages/Netlify 등)에서 바로 동작하도록 Firebase v10 CDN 모듈 사용
+// auth.js (single-button edition): 
+// - 새 버튼을 만들지 않습니다.
+// - 화면에 이미 있는 'google로 로그인' 버튼 1개에만 이벤트를 연결합니다.
+// - Firestore에 users/{uid} 문서로 events 배열을 저장/동기화합니다.
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getAuth, GoogleAuthProvider, setPersistence, browserLocalPersistence,
-  signInWithPopup, onAuthStateChanged, signOut
+import { initializeApp, getApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { 
+  getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { 
+  initializeFirestore, doc, getDoc, setDoc, onSnapshot 
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-import { initializeFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-console.log("[auth] loaded");
-
-// 🔧 네가 준 Firebase 설정 (콘솔에서 복사한 값)
-const firebaseConfig = {
-  apiKey: "AIzaSyCMBAyFozLAyVhsnm7Yl-SBJXVGAkLiysY",
-  authDomain: "calender-6fe09.firebaseapp.com",
-  projectId: "calender-6fe09",
-  storageBucket: "calender-6fe09.firebasestorage.app",
-  messagingSenderId: "822464492939",
-  appId: "1:822464492939:web:d0b65cf1cd2d73b706ab8e",
-  measurementId: "G-N2WYX8GBFT"
-};
-
-// Firebase 초기화
-const app  = initializeApp(firebaseConfig);
+// 0) Firebase App 초기화 (이미 초기화돼 있으면 재사용)
+const app = getApps().length ? getApp() : initializeApp(window.firebaseConfig || {});
 const auth = getAuth(app);
-
-
 const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true, useFetchStreams: false });
-// 같은 브라우저에서 로그인 상태 유지
-setPersistence(auth, browserLocalPersistence).catch(console.warn);
 
-// 허용할 구글 이메일 도메인
-const ALLOWED_DOMAIN = "phhs.kr";
-
-// 로그인 UI를 꽂을 자리 확보
-function ensureBox(){
-  // 1) 명시적 자리
-  let box = document.getElementById("authBox");
-  if (box) return box;
-
-  // 2) 기존 툴바 오른쪽
-  const bar = document.querySelector(".toolbar");
-  if (bar){
-    box = document.createElement("div");
-    box.id = "authBox";
-    box.style.marginLeft = "auto";
-    box.style.display = "flex";
-    box.style.alignItems = "center";
-    box.style.gap = "8px";
-    bar.appendChild(box);
-    return box;
-  }
-
-  // 3) 임시 우상단 고정
-  box = document.createElement("div");
-  box.id = "authBox";
-  box.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;display:flex;gap:8px;align-items:center";
-  document.body.appendChild(box);
-  return box;
-}
-
-// 비로그인 UI
-function renderSignedOut(){
-  const box = ensureBox(); if (!box) return;
-  box.innerHTML = "";
-  const btn = document.createElement("button");
-  btn.textContent = "구글로 로그인";
-  btn.addEventListener("click", async () => {
-    const provider = new GoogleAuthProvider();
-    // 'hd'는 선택화면 힌트(완전 강제는 아니라서 아래에서 재검사)
-    provider.setCustomParameters({ hd: ALLOWED_DOMAIN, prompt: "select_account" });
-    try{
-      const res = await signInWithPopup(auth, provider);
-      const email = (res.user?.email || "").toLowerCase();
-      if (!email.endsWith("@"+ALLOWED_DOMAIN)) {
-        await signOut(auth);
-        alert(`${ALLOWED_DOMAIN} 계정만 로그인할 수 있어요.`);
-      }
-    }catch(e){
-      if (e?.code !== "auth/popup-closed-by-user"){
-        alert("로그인 실패: " + (e?.message || e));
-      }
-    }
-  });
-  box.appendChild(btn);
-}
-
-// 로그인 UI
-function renderSignedIn(user){
-  const box = ensureBox(); if (!box) return;
-  box.innerHTML = "";
-  const who = document.createElement("span");
-  who.style.fontSize = "12px";
-  who.style.opacity = ".8";
-  who.textContent = `${user.displayName || user.email} 로그인됨`;
-  const out = document.createElement("button");
-  out.textContent = "로그아웃";
-  out.addEventListener("click", () => signOut(auth));
-  box.append(who, out);
-}
-
-// 로그인 상태 반영 + 도메인 강제
-
-// === Firestore 동기화 (로그인 후 시작) ===
+// === Firestore 동기화 (UI 생성 없음) ===
 function startEventsSync(uid){
   try {
     if (!uid) return;
@@ -135,7 +49,7 @@ function startEventsSync(uid){
       window.applyRemoteEvents?.(arr);
     });
 
-    // 로컬 저장 후 클라우드 업데이트 훅
+    // 로컬 저장 후 → 클라우드 업데이트 훅
     window.afterLocalSave = function(){
       try{
         const arr = (typeof window.getUserEvents === 'function')
@@ -154,93 +68,71 @@ function stopEventsSync(){
   try{ delete window.afterLocalSave; }catch{}
 }
 
-window.startEventsSync = startEventsSync;
-window.stopEventsSync  = stopEventsSync;
-// === END Firestore 동기화 ===
-
-onAuthStateChanged(auth, (user) => {
-  const ok = !!user && (user.email || "").toLowerCase().endsWith("@"+ALLOWED_DOMAIN);
-  if (ok) renderSignedIn(user);
-  else    renderSignedOut();
-});
-
-// 디버깅용
-window.phhsAuth = { auth, signOut, onAuthStateChanged };
-
-
-// === Toolbar Login UI mount ===
-function mountAuthUI(){
+// === 기존 'google로 로그인' 버튼 1개에만 이벤트 연결 (UI 생성 없음) ===
+(function attachExistingLoginButton(){
   try {
-    // prefer toolbar
-    let mount = document.querySelector('.toolbar #authMount') ||
-                document.querySelector('.toolbar') ||
-                document.getElementById('authBox');
-    if (!mount) return;
-
-    // If the mount is the toolbar itself, create an inner container placed to the right
-    if (mount.classList && mount.classList.contains('toolbar')){
-      let s = document.createElement('span');
-      s.style.marginLeft = 'auto';
-      s.id = 'authMount';
-      mount.appendChild(s);
-      mount = s;
-    }
-
-    if (!mount.querySelector('#authUI')) {
-      mount.innerHTML = [
-        '<div id="authUI" class="auth-mini">',
-        '  <button id="loginBtn" type="button">Google 로그인</button>',
-        '  <span id="userName" style="display:none"></span>',
-        '  <button id="logoutBtn" type="button" style="display:none">로그아웃</button>',
-        '</div>'
-      ].join('');
-    }
-
-    const loginBtn  = mount.querySelector('#loginBtn');
-    const logoutBtn = mount.querySelector('#logoutBtn');
-    const userName  = mount.querySelector('#userName');
-
     const provider = new GoogleAuthProvider();
     try { if (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN) {
       provider.setCustomParameters({ hd: ALLOWED_DOMAIN, prompt: 'select_account' });
     }} catch(e){}
 
-    if (loginBtn) loginBtn.onclick  = () => signInWithPopup(auth, provider).catch(console.warn);
-    if (logoutBtn) logoutBtn.onclick = () => signOut(auth).catch(console.warn);
-
-    function showSignedIn(u){
-      if (loginBtn)  loginBtn.style.display = 'none';
-      if (userName) { userName.style.display = ''; userName.textContent = (u.displayName || u.email || '로그인됨'); }
-      if (logoutBtn) logoutBtn.style.display = '';
-    }
-    function showSignedOut(){
-      if (loginBtn)  loginBtn.style.display = '';
-      if (userName)  userName.style.display = 'none';
-      if (logoutBtn) logoutBtn.style.display = 'none';
+    function norm(s){ return (s||'').replace(/\s+/g,' ').trim().toLowerCase(); }
+    function findLoginBtn(){
+      const nodes = Array.from(document.querySelectorAll('button, [role="button"]'));
+      return nodes.find(el => norm(el.textContent).includes('google로 로그인')) || document.getElementById('loginBtn');
     }
 
-    onAuthStateChanged(auth, (user) => {
-      const email = (user && user.email || '').toLowerCase();
-      const allowed = (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN)
-        ? email.endsWith('@' + ALLOWED_DOMAIN)
-        : true;
-      if (user && allowed){
-        showSignedIn(user);
-        window.startEventsSync?.(user.uid);
-      } else {
-        showSignedOut();
-        window.stopEventsSync?.();
-      }
-    });
-  } catch (e) {
-    console.warn('[auth-ui] mount error', e);
+    function wire(){
+      const btn = findLoginBtn();
+      if (!btn || btn._wired) return;
+      btn._wired = true;
+      btn.addEventListener('click', () => signInWithPopup(auth, provider).catch(console.warn));
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', wire, { once: true });
+    } else {
+      wire();
+    }
+  } catch(e) {
+    console.warn('[auth] attachExistingLoginButton', e);
   }
-}
+})();
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', mountAuthUI, { once: true });
-} else {
-  mountAuthUI();
-}
-// === END Toolbar Login UI mount ===
+// === 인증 상태 변화 → 동기화 및 (있다면) UI 토글 ===
+onAuthStateChanged(auth, (user) => {
+  const email = (user && user.email || '').toLowerCase();
+  const allowed = (typeof ALLOWED_DOMAIN === 'string' && ALLOWED_DOMAIN)
+    ? email.endsWith('@' + ALLOWED_DOMAIN)
+    : true;
 
+  // 선택적으로, 페이지에 존재하는 요소가 있으면 토글(없으면 건드리지 않음)
+  const loginBtn  = document.getElementById('loginBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const userName  = document.getElementById('userName');
+
+  function showIn(u){
+    if (loginBtn)  loginBtn.style.display = 'none';
+    if (userName) { userName.style.display = ''; userName.textContent = (u.displayName || u.email || '로그인됨'); }
+    if (logoutBtn) {
+      logoutBtn.style.display = '';
+      if (!logoutBtn._wired) {
+        logoutBtn._wired = true;
+        logoutBtn.addEventListener('click', () => signOut(auth).catch(console.warn));
+      }
+    }
+  }
+  function showOut(){
+    if (loginBtn)  loginBtn.style.display = '';
+    if (userName)  userName.style.display = 'none';
+    if (logoutBtn) logoutBtn.style.display = 'none';
+  }
+
+  if (user && allowed){
+    showIn(user);
+    startEventsSync(user.uid);
+  } else {
+    stopEventsSync();
+    showOut();
+  }
+});
